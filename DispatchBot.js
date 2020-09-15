@@ -1,4 +1,4 @@
-const { ActivityHandler } = require('botbuilder');
+const { ActivityHandler, CardFactory, MessageFactory } = require('botbuilder');
 const { LuisRecognizer, QnAMaker } = require('botbuilder-ai');
 
 class DispatchBot extends ActivityHandler {
@@ -49,7 +49,6 @@ class DispatchBot extends ActivityHandler {
                 }
             }
 
-            // By calling next() you ensure that the next BotHandler is run.
             await next();
         });
     };
@@ -88,15 +87,38 @@ class DispatchBot extends ActivityHandler {
     }
 
     // função que faz a busca na base de conhecimento do QnA
-    async processQnAIntent(context) {
-        console.log('processSampleQnA');
+    // Se houver contexto de acompanhamento, os exibe em forma de card
+    async processQnAIntent(turnContext) {
+        const value = turnContext.activity.value;
+        const qnaId = value && value.qnaId;
+        // qnaId será undefined se o valor estiver vazio
+        const results = await this.qnaMaker.getAnswers(turnContext, { qnaId });
+        const firstResult = results[0];
 
-        const results = await this.qnaMaker.getAnswers(context);
+        if (firstResult) {
+            let answer = firstResult.answer;
+            const resultContext = firstResult.context;
+            const prompts = resultContext && resultContext.prompts;
 
-        if (results.length > 0) {
-            await context.sendActivity(`${ results[0].answer }`);
+            if (prompts && prompts.length) {
+                const card = CardFactory.heroCard(
+                    answer,
+                    [],
+                    prompts.map(prompt => ({
+                        type: 'messageBack',
+                        title: prompt.displayText,
+                        displayText: prompt.displayText,
+                        text: prompt.displayText,
+                        value: { qnaId: prompt.qnaId }
+                    }))
+                );
+
+                answer = MessageFactory.attachment(card);
+            }
+
+            await turnContext.sendActivity(answer);
         } else {
-            await context.sendActivity('Desculpe, ainda não sei sobre esse assunto.\nVou estudar mais!');
+            await turnContext.sendActivity('Desculpe, ainda não sei sobre esse assunto.\nVou estudar mais!');
         }
     }
 };
